@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/gobwas/glob"
 )
 
 var (
@@ -62,24 +63,40 @@ type Observer interface {
 
 type empty struct{}
 
-type Fetcher struct {
-	client      *http.Client
+type domainRule struct {
+	domain      glob.Glob
 	semaphore   chan empty
 	rateLimiter <-chan time.Time
 }
 
+type Fetcher struct {
+	client      *http.Client
+	domainRules []domainRule
+}
+
 func NewFetcher(maxConnections, perSecond int) Fetcher {
-	return Fetcher{
-		client,
+	f := Fetcher{client: client}
+	f.Limit("*", maxConnections, perSecond)
+	return f
+}
+
+func (f *Fetcher) Limit(domainGlob string, maxConnections, perSecond int) {
+	f.domainRules = append(f.domainRules, domainRule{
+		glob.MustCompile(domainGlob),
 		make(chan empty, maxConnections),
 		time.Tick(time.Second / time.Duration(perSecond)),
-	}
+	})
 }
 
 func (f Fetcher) Get(u *url.URL) (*http.Response, error) {
-	f.semaphore <- empty{}
-	defer func() { <-f.semaphore }()
-	<-f.rateLimiter
+	for _, r := range f.domainRules {
+		if r.domain.Match(u.Hostname()) {
+			r.semaphore <- empty{}
+			defer func() { <-r.semaphore }()
+			<-r.rateLimiter
+			break
+		}
+	}
 
 	log.Println("GET", u)
 	r, err := f.client.Get(u.String())
