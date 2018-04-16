@@ -29,6 +29,7 @@ var (
 
 	handlers = []Handler{
 		MangaReaderHandler{},
+		MangaEdenHandler{},
 	}
 )
 
