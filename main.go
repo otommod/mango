@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -101,7 +100,8 @@ func (f Fetcher) Get(u *url.URL) (*http.Response, error) {
 	log.Println("GET", u)
 	r, err := f.client.Get(u.String())
 	if err == nil && r.StatusCode != 200 {
-		return nil, fmt.Errorf("GET %s: %s", u.String(), r.Status)
+		// XXX: find a nicer way to do error codes
+		return nil, fmt.Errorf("GET %s: %d", u.String(), r.StatusCode)
 	}
 	return r, err
 }
@@ -348,8 +348,6 @@ func (s CBZSaver) Block(m Metadata) bool {
 // }
 
 func main() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-
 	fetcher := NewFetcher(50, 10)
 	saver := CBZSaver{}
 
