@@ -1,10 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/url"
 	"path"
@@ -16,60 +14,12 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-var (
-	MANGA_CHAPTER_RE = regexp.MustCompile(
-		`(?P<manga>.+) (?P<chapter>\d+) - Read .* Online - Page (?P<page>\d+)`)
-	MANGAID_RE = regexp.MustCompile(`mangaid[^=]*=\s*(?P<mangaid>\d+);`)
-)
-
-type MangaReaderScraper struct{}
-
-func (m MangaReaderScraper) extractPageInfo(doc *goquery.Document) (manga string, chapter int, page int) {
-	var err error
-
-	title := doc.Find("title").Text()
-	match := MANGA_CHAPTER_RE.FindStringSubmatch(title)
-	if len(match) < 1 {
-		log.Fatal("cannot extract page info: cannot parse title")
-	}
-
-	manga = match[1]
-	if chapter, err = strconv.Atoi(match[2]); err != nil {
-		log.Fatalln("cannot extract page info:", err)
-	}
-	if page, err = strconv.Atoi(match[3]); err != nil {
-		log.Fatalln("cannot extract page info:", err)
-	}
-	return
-}
-
-// Extract a 'mangaid' from a chapter DOM.
-//
-// Each manga has a unique 'mangaid'.  That seems to only be accessible
-// from a chapter page, namely a variable in a script like so:
-//     document['mangaid'] = {mangaid};
-// Given that, one can access a handy JSON file at:
-//     http://www.mangareader.net/actions/selector/?id={mangaid}&which=0
-// that contains every info for every chapter in the manga, specifically
-// its number, name, url and a mysterious 'deletable' field.
-func (m MangaReaderScraper) extractMangaID(doc *goquery.Document) string {
-	scripts := doc.Find("script:contains(mangaid)")
-	if scripts.Length() != 1 {
-		log.Fatal("cannot extract mangaid: no script found")
-	}
-	script := scripts.Text()
-
-	match := MANGAID_RE.FindStringSubmatch(script)
-	if len(match) < 1 {
-		log.Fatal("cannot extract mangaid: variable not found")
-	}
-	return match[1]
-}
-
 type resource struct {
 	url  *url.URL
 	info Metadata
 }
+
+type MangaReaderScraper struct{}
 
 func mapSelectionText(i int, s *goquery.Selection) string {
 	return s.Text()
@@ -146,7 +96,7 @@ func (m MangaReaderScraper) GetPages(doc *goquery.Document) (pages []resource, i
 	options := doc.Find("#pageMenu option")
 	pagesLen := len(strconv.Itoa(options.Length()))
 
-	doc.Find("#pageMenu option").Each(func(i int, s *goquery.Selection) {
+	options.Each(func(i int, s *goquery.Selection) {
 		value, ok := s.Attr("value")
 		if !ok {
 			log.Fatal("cannot extract pages: no link")
@@ -193,35 +143,6 @@ type MangaReaderCrawler struct {
 	saver       Saver
 	rule        Rule
 	obs         Observer
-}
-
-func (m *MangaReaderCrawler) getChaptersNames(doc *goquery.Document) map[string]string {
-	SELECTOR_URL := "http://www.mangareader.net/actions/selector/?id=%s&which=0"
-
-	type SelectorChapter struct {
-		Num  string `json:"chapter"`
-		Name string `json:"chapter_name"`
-	}
-
-	mangaid := m.scraper.extractMangaID(doc)
-	u, _ := url.Parse(fmt.Sprintf(SELECTOR_URL, url.QueryEscape(mangaid)))
-	selector, err := m.client.Get(u)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer selector.Body.Close()
-
-	var chapters []SelectorChapter
-	json.NewDecoder(selector.Body).Decode(&chapters)
-
-	// make sure the response body is drained; important for connection reuse
-	io.Copy(ioutil.Discard, selector.Body)
-
-	chapnames := make(map[string]string)
-	for i := 0; i < len(chapters); i++ {
-		chapnames[chapters[i].Num] = chapters[i].Name
-	}
-	return chapnames
 }
 
 var (
@@ -327,13 +248,30 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 	}
 
 	if chapter.info == nil {
-		chapterNames := m.getChaptersNames(chapterDoc)
-		mangaName, chapterNum, _ := m.scraper.extractPageInfo(chapterDoc)
+		pathParts := strings.Split(chapter.url.EscapedPath(), "/")
 
-		chapter.info = Metadata{
-			"manga":        mangaName,
-			"chapter":      chapterNum,
-			"chapters_len": len(strconv.Itoa(len(chapterNames))),
+		chapterPath := chapter.url.EscapedPath()
+		mangaURL, _ := chapter.url.Parse(path.Dir(chapterPath))
+		if len(pathParts) == 3 {
+			// chapter url (/one-piece/2)
+		} else if len(pathParts) == 4 {
+			// chapter url with ending slash (/one-piece/2/)
+			// or page url (/one-piece/2/3)
+			chapterPath = path.Dir(chapterPath)
+			mangaURL, _ = chapter.url.Parse(path.Dir(chapterPath))
+		}
+
+		mangaDoc, err := m.client.GetHTML(mangaURL)
+		if err != nil {
+			log.Fatal(err)
+		}
+		allChapters := m.scraper.GetChapters(mangaDoc)
+
+		for _, c := range allChapters {
+			if chapterPath == c.url.EscapedPath() {
+				chapter.info = c.info
+				break
+			}
 		}
 	}
 
@@ -349,7 +287,6 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 
 	m.obs.OnChapterStart(thisPage[0].info)
 	m.obs.OnPageStart(thisPage[0].info)
-
 	wg := sync.WaitGroup{}
 
 	wg.Add(1)
@@ -358,7 +295,16 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 		m.handleImage(thisPage[0])
 	}()
 
-	if m.shouldGuess {
+	if !m.shouldGuess {
+		for _, p := range otherPages {
+			wg.Add(1)
+			go func(p resource) {
+				defer wg.Done()
+				m.handlePage(p)
+			}(p)
+		}
+
+	} else {
 		pages, guesses := m.guessImages(otherPages, thisPage)
 		for i, p := range pages {
 			wg.Add(1)
@@ -381,15 +327,6 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 					}
 				}
 			}(p, guesses[i])
-		}
-
-	} else {
-		for _, p := range otherPages {
-			wg.Add(1)
-			go func(p resource) {
-				defer wg.Done()
-				m.handlePage(p)
-			}(p)
 		}
 	}
 
@@ -466,21 +403,10 @@ func (m MangaReaderHandler) Handle(u *url.URL, fetcher Fetcher, saver Saver, rul
 	}
 
 	pathParts := strings.Split(u.EscapedPath(), "/")
-	if len(pathParts) == 3 {
-		// TODO: should handle chapters through `handleManga` as well with an
-		// extra rule to select the specific chapter; would make information
-		// extraction centralized
-
-		// mangapath := path.Dir(u.EscapedPath())
-		// mangaURL, err := u.Parse(mangapath)
-		// if err != nil {
-		// 	log.Fatalln("cannot handle chapter:", err)
-		// }
-		// rule = OrRule(URLEqualRule(u), rule)
-
-		crawler.handleChapter(resource{u, nil})
-	} else if len(pathParts) == 2 {
+	if len(pathParts) == 2 {
 		crawler.handleManga(u)
+	} else if len(pathParts) == 4 || len(pathParts) == 3 && pathParts[len(pathParts)-1] != "" {
+		crawler.handleChapter(resource{u, nil})
 	} else {
 		log.Fatalln("mangareader: cannot handle", u)
 	}
