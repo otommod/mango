@@ -27,11 +27,6 @@ var (
 	client = &http.Client{
 		Transport: http.DefaultTransport,
 	}
-
-	handlers = []Handler{
-		MangaReaderHandler{},
-		MangaEdenHandler{},
-	}
 )
 
 type Metadata map[string]interface{}
@@ -43,8 +38,7 @@ func (m Metadata) Update(other Metadata) {
 }
 
 type Handler interface {
-	CanHandle(*url.URL) bool
-	Handle(*url.URL, Fetcher, Saver, Rule, Observer)
+	Handle(*url.URL)
 }
 
 type Saver interface {
@@ -355,6 +349,16 @@ func (s CBZSaver) Block(m Metadata) bool {
 // 	}
 // }
 
+func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) Handler {
+	switch {
+	case strings.Contains(u.Hostname(), "mangareader.net"):
+		return NewMangaReaderCrawler(fetcher, saver, rule, obs)
+	case strings.Contains(u.Hostname(), "mangaeden.com"):
+		return NewMangaEdenCrawler(fetcher, saver, rule, obs)
+	}
+	return nil
+}
+
 func main() {
 	fetcher := NewFetcher(50, 10)
 	saver := CBZSaver{}
@@ -368,16 +372,12 @@ func main() {
 			log.Fatal(err)
 		}
 
-		for _, h := range handlers {
-			if h.CanHandle(u) {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					h.Handle(u, fetcher, saver, saver, saver)
-				}()
-				break
-			}
-		}
+		h := handler(u, fetcher, saver, saver, saver)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			h.Handle(u)
+		}()
 	}
 
 	wg.Wait()

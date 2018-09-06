@@ -369,30 +369,8 @@ func (m *MangaReaderCrawler) handleImage(img resource) error {
 	return nil
 }
 
-type MangaReaderHandler struct{}
-
-func (m MangaReaderHandler) CanHandle(u *url.URL) bool {
-	// netlocs := []string{
-	// 	"mangareader.net",
-	// 	"www.mangareader.net",
-	// }
-
-	// for _, h := range netlocs {
-	// 	if strings.Contains(u.Hostname(), h) {
-	// 		return true
-	// 	}
-	// }
-	// return false
-
-	return strings.Contains(u.Hostname(), "mangareader.net")
-}
-
-func (m MangaReaderHandler) Handle(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) {
-	if !m.CanHandle(u) {
-		log.Fatalln("mangareader: do not recognize", u)
-	}
-
-	crawler := MangaReaderCrawler{
+func NewMangaReaderCrawler(fetcher Fetcher, saver Saver, rule Rule, obs Observer) *MangaReaderCrawler {
+	crawler := &MangaReaderCrawler{
 		shouldGuess: false,
 		client:      fetcher,
 		saver:       saver,
@@ -400,11 +378,15 @@ func (m MangaReaderHandler) Handle(u *url.URL, fetcher Fetcher, saver Saver, rul
 		obs:         obs,
 	}
 
+	return crawler
+}
+
+func (m *MangaReaderCrawler) Handle(u *url.URL) {
 	pathParts := strings.Split(u.EscapedPath(), "/")
 	if len(pathParts) == 2 {
-		crawler.handleManga(u)
+		m.handleManga(u)
 	} else if len(pathParts) == 4 || len(pathParts) == 3 && pathParts[len(pathParts)-1] != "" {
-		crawler.handleChapter(resource{u, nil})
+		m.handleChapter(resource{u, nil})
 	} else {
 		log.Fatalln("mangareader: cannot handle", u)
 	}

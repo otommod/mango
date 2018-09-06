@@ -278,44 +278,26 @@ func (m *MangaEdenCrawler) handleImage(img resource) error {
 	return nil
 }
 
-type MangaEdenHandler struct{}
-
-func (m MangaEdenHandler) CanHandle(u *url.URL) bool {
-	// netlocs := []string{
-	// 	"mangareader.net",
-	// 	"www.mangareader.net",
-	// }
-
-	// for _, h := range netlocs {
-	// 	if strings.Contains(u.Hostname(), h) {
-	// 		return true
-	// 	}
-	// }
-	// return false
-
-	return strings.Contains(u.Hostname(), "mangaeden.com")
-}
-
-func (m MangaEdenHandler) Handle(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) {
-	if !m.CanHandle(u) {
-		log.Fatalln("mangaeden: do not recognize", u)
-	}
-
-	crawler := MangaEdenCrawler{
+func NewMangaEdenCrawler(fetcher Fetcher, saver Saver, rule Rule, obs Observer) *MangaEdenCrawler {
+	crawler := &MangaEdenCrawler{
 		client: fetcher,
 		saver:  saver,
 		rule:   rule,
 		obs:    obs,
 	}
 
+	return crawler
+}
+
+func (m *MangaEdenCrawler) Handle(u *url.URL) {
 	// XXX: clean up the url; will also make handleChapter easier
 	cleanPath := path.Clean(u.EscapedPath())
 	pathParts := strings.Split(cleanPath, "/")
 	pathParts = pathParts[3:] // discard the /en/en-manga/ part
 	if len(pathParts) == 1 {
-		crawler.handleManga(u)
+		m.handleManga(u)
 	} else if len(pathParts) == 2 || len(pathParts) == 3 {
-		crawler.handleChapter(resource{u, nil})
+		m.handleChapter(resource{u, nil})
 	} else {
 		log.Fatalln("mangaeden: cannot handle", u)
 	}
