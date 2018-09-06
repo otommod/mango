@@ -12,24 +12,9 @@ import (
 	"sync"
 
 	"github.com/PuerkitoBio/goquery"
-	"golang.org/x/net/html"
 )
 
 type MangaEdenScrapper struct{}
-
-func nextTextNode(s *goquery.Selection) *goquery.Selection {
-	textNodes := []*html.Node{}
-	for _, node := range s.Nodes {
-		for ; node != nil; node = node.NextSibling {
-			if node.Type == html.TextNode {
-				textNodes = append(textNodes, node)
-				break
-			}
-		}
-	}
-
-	return s.Slice(0, 0).AddNodes(textNodes...)
-}
 
 func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resource) {
 	comicType := nextTextNode(doc.Find("#rightContent h4:contains('Type')")).Text()

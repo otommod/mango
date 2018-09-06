@@ -54,8 +54,6 @@ type Observer interface {
 	OnPageEnd(Metadata)
 }
 
-type empty struct{}
-
 type domainRule struct {
 	domain      glob.Glob
 	semaphore   chan empty
@@ -108,30 +106,6 @@ func (f Fetcher) GetHTML(u *url.URL) (*goquery.Document, error) {
 
 	// XXX: don't use NewDocumentFromResponse
 	return goquery.NewDocumentFromResponse(page)
-}
-
-func isDir(path string) bool {
-	finfo, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-		log.Fatal(err)
-	}
-	return finfo.IsDir()
-}
-
-func isFile(path string) bool {
-	finfo, err := os.Stat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false
-		}
-		log.Fatal(err)
-	}
-	// There are more things than directories that are not files (e.g. sockets,
-	// devices, etc)
-	return !finfo.IsDir()
 }
 
 type PageSaver struct{}
@@ -198,13 +172,7 @@ func (s PageSaver) OnChapterEnd(info Metadata) {
 
 func (s PageSaver) Block(info Metadata) bool {
 	dirname, _ := s.name(info)
-
-	if isDir(dirname) {
-		log.Println("blocking", dirname)
-		return true
-	}
-	log.Println("allowing", dirname)
-	return false
+	return isDir(dirname)
 }
 
 type CBZSaver struct{}
@@ -304,13 +272,7 @@ func (s CBZSaver) OnChapterEnd(info Metadata) {
 
 func (s CBZSaver) Block(m Metadata) bool {
 	archivename, _ := s.name(m)
-
-	if isFile(archivename) {
-		log.Println("blocking", archivename)
-		return true
-	}
-	log.Println("allowing", archivename)
-	return false
+	return isFile(archivename)
 }
 
 func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) Handler {

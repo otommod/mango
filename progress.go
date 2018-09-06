@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"image/color"
-	"io"
 )
 
 var (
@@ -96,52 +95,4 @@ loop:
 func (self ProgressBar) Stop() {
 	self.stopCh <- empty{}
 	<-self.stopped
-}
-
-type ProgressReader struct {
-	Reader   io.Reader
-	Size     int64
-	Callback func(int64, int64)
-
-	progress int64
-}
-
-func (p *ProgressReader) Read(buf []byte) (int, error) {
-	read, err := p.Reader.Read(buf)
-
-	if p.Size != 0 {
-		oldProgress := p.progress
-		oldPercent := (100 * oldProgress) / p.Size
-		p.progress += int64(read)
-		percent := (100 * p.progress) / p.Size
-		if percent > oldPercent && p.Callback != nil {
-			p.Callback(p.progress, p.Size)
-		}
-	} else {
-		p.Callback(p.progress, p.Size)
-	}
-
-	return read, err
-}
-
-type ProgressWriter struct {
-	Writer   io.WriteCloser
-	Size     int64
-	Callback func(int64, int64)
-
-	progress int64
-}
-
-func (p *ProgressWriter) Write(buf []byte) (int, error) {
-	count, err := p.Writer.Write(buf)
-
-	p.progress += int64(count)
-	if p.Callback != nil {
-		p.Callback(p.progress, p.Size)
-	}
-	return count, err
-}
-
-func (p *ProgressWriter) Close() error {
-	return p.Writer.Close()
 }
