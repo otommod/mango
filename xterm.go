@@ -73,7 +73,7 @@ func init() {
 	//
 	// These are pretty straightforward, they form the set
 	//
-	//   { Gray{c} | c = 8, 18, ..., 238 }
+	//   { Gray{c} | c = 8, 18, 28, ..., 238 }
 	//
 	for ic := 0; ic < 24; ic++ {
 		XTerm256Palette = append(XTerm256Palette, color.Gray{uint8(8 + 10*ic)})

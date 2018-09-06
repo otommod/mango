@@ -14,9 +14,9 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-type MangaEdenScrapper struct{}
+type MangaEdenScraper struct{}
 
-func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resource) {
+func (m MangaEdenScraper) GetChapters(doc *goquery.Document) (chapters []resource) {
 	comicType := nextTextNode(doc.Find("#rightContent h4:contains('Type')")).Text()
 	comicType = strings.ToLower(strings.TrimSpace(comicType))
 	readingDirection := "ltr"
@@ -85,7 +85,7 @@ func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resou
 	return
 }
 
-func (m *MangaEdenScrapper) GetPages(doc *goquery.Document) (pages []resource, images []resource) {
+func (m MangaEdenScraper) GetPages(doc *goquery.Document) (pages []resource, images []resource) {
 	options := doc.Find("#pageSelect option")
 	options.Each(func(i int, s *goquery.Selection) {
 		value, ok := s.Attr("value")
@@ -114,7 +114,7 @@ func (m *MangaEdenScrapper) GetPages(doc *goquery.Document) (pages []resource, i
 	return
 }
 
-func (m *MangaEdenScrapper) GetImage(page *goquery.Document) (img resource) {
+func (m MangaEdenScraper) GetImage(page *goquery.Document) (img resource) {
 	imgSrc, ok := page.Find("#mainImg").Attr("src")
 	if !ok {
 		log.Fatal("cannot extract image: no #img or @src")
@@ -128,7 +128,7 @@ func (m *MangaEdenScrapper) GetImage(page *goquery.Document) (img resource) {
 }
 
 type MangaEdenCrawler struct {
-	scraper MangaEdenScrapper
+	scraper MangaEdenScraper
 	client  Fetcher
 	saver   Saver
 	rule    Rule
