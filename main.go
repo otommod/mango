@@ -108,7 +108,9 @@ func (f Fetcher) GetHTML(u *url.URL) (*goquery.Document, error) {
 	return goquery.NewDocumentFromResponse(page)
 }
 
-type PageSaver struct{}
+type PageSaver struct {
+	progressBar *ProgressBar
+}
 
 func (s PageSaver) name(info Metadata) (dirname, basename string) {
 	chaptersLen := len(strconv.Itoa(info["chapters"].(int)))
@@ -137,12 +139,12 @@ func (s PageSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
 		return nil, err
 	}
 
-	task := progressBar.StartTask(size)
+	task := s.progressBar.StartTask(size)
 	return &ProgressWriter{
 		Writer: file,
 		Size:   size,
 		Callback: func(prog, total int64) {
-			progressBar.TickTask(task, prog)
+			s.progressBar.TickTask(task, prog)
 		},
 	}, nil
 }
@@ -175,7 +177,9 @@ func (s PageSaver) Block(info Metadata) bool {
 	return isDir(dirname)
 }
 
-type CBZSaver struct{}
+type CBZSaver struct {
+	progressBar *ProgressBar
+}
 
 func (s CBZSaver) name(info Metadata) (archivename, imagename string) {
 	chaptersLen := len(strconv.Itoa(info["chapters"].(int)))
@@ -204,12 +208,12 @@ func (s CBZSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
 		return nil, err
 	}
 
-	task := progressBar.StartTask(size)
+	task := s.progressBar.StartTask(size)
 	return &ProgressWriter{
 		Writer: file,
 		Size:   size,
 		Callback: func(prog, total int64) {
-			progressBar.TickTask(task, prog)
+			s.progressBar.TickTask(task, prog)
 		},
 	}, nil
 }
@@ -286,8 +290,11 @@ func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) 
 }
 
 func main() {
+	progressBar := NewProgressBar()
+	defer progressBar.Stop()
+
 	fetcher := NewFetcher(50, 10)
-	saver := CBZSaver{}
+	saver := CBZSaver{progressBar: progressBar}
 
 	wg := sync.WaitGroup{}
 
@@ -307,5 +314,4 @@ func main() {
 	}
 
 	wg.Wait()
-	progressBar.Stop()
 }

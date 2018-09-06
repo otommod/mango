@@ -5,10 +5,6 @@ import (
 	"image/color"
 )
 
-var (
-	progressBar = NewProgressBar()
-)
-
 type progress struct {
 	place int
 	sofar int64
@@ -27,14 +23,14 @@ type ProgressBar struct {
 	stopped  chan empty
 }
 
-func NewProgressBar() ProgressBar {
+func NewProgressBar() *ProgressBar {
 	gradient := LinearGradient{
 		color.RGBA{192, 3, 20, 255},
 		color.RGBA{255, 255, 0, 255},
 		color.RGBA{3, 192, 20, 255},
 	}
 
-	p := ProgressBar{
+	p := &ProgressBar{
 		gradient: gradient,
 		startCh:  make(chan int),
 		tickCh:   make(chan progress),
