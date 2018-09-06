@@ -295,6 +295,8 @@ func main() {
 
 	fetcher := NewFetcher(50, 10)
 	saver := CBZSaver{progressBar: progressBar}
+	// rule := saver
+	rule := AndRule{saver, LastChapterRule{}}
 
 	wg := sync.WaitGroup{}
 
@@ -305,7 +307,7 @@ func main() {
 			log.Fatal(err)
 		}
 
-		h := handler(u, fetcher, saver, saver, saver)
+		h := handler(u, fetcher, saver, rule, saver)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
