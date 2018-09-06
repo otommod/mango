@@ -2,12 +2,15 @@ package main
 
 import (
 	"archive/zip"
+	"context"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,12 +23,25 @@ import (
 
 var (
 	// Customize the Transport to have larger connection pool
-	// transport = &http.Transport{
-	// 	MaxIdleConns:        100,
-	// 	MaxIdleConnsPerHost: 8,
-	// }
+	transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			DualStack: true,
+		}).DialContext,
+
+		TLSHandshakeTimeout: 10 * time.Second,
+		// ResponseHeaderTimeout: 10 * time.Second,
+		// ExpectContinueTimeout: 1 * time.Second,
+
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 200,
+		IdleConnTimeout:     90 * time.Second,
+	}
 	client = &http.Client{
-		Transport: http.DefaultTransport,
+		Transport: transport,
+		// Timeout:   15 * time.Second,
 	}
 )
 
@@ -38,7 +54,8 @@ func (m Metadata) Update(other Metadata) {
 }
 
 type Handler interface {
-	Handle(*url.URL)
+	Subscribe(Observer)
+	Handle(context.Context, *url.URL)
 }
 
 type Saver interface {
@@ -50,8 +67,8 @@ type Rule interface {
 }
 
 type Observer interface {
-	OnChapterEnd(Metadata)
 	OnPageEnd(Metadata)
+	OnChapterEnd(Metadata)
 }
 
 type domainRule struct {
@@ -79,7 +96,7 @@ func (f *Fetcher) Limit(domainGlob string, maxConnections, perSecond int) {
 	})
 }
 
-func (f Fetcher) Get(u *url.URL) (*http.Response, error) {
+func (f Fetcher) Get(ctx context.Context, u *url.URL) (*http.Response, error) {
 	for _, r := range f.domainRules {
 		if r.domain.Match(u.Hostname()) {
 			r.semaphore <- empty{}
@@ -90,7 +107,21 @@ func (f Fetcher) Get(u *url.URL) (*http.Response, error) {
 	}
 
 	log.Println("GET", u)
-	r, err := f.client.Get(u.String())
+
+	req, _ := http.NewRequest("GET", u.String(), nil)
+	// trace := &httptrace.ClientTrace{
+	// 	GotConn: func(connInfo httptrace.GotConnInfo) {
+	// 		fmt.Printf("Got Conn: %+v\n", connInfo)
+	// 	},
+	// 	DNSDone: func(dnsInfo httptrace.DNSDoneInfo) {
+	// 		fmt.Printf("DNS Info: %+v\n", dnsInfo)
+	// 	},
+	// }
+	// req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+	// req = req.WithContext(WithHTTPStat(ctx, &RequestTimings{}))
+	req = req.WithContext(ctx)
+
+	r, err := f.client.Do(req)
 	if err == nil && r.StatusCode != 200 {
 		// XXX: find a nicer way to do error codes
 		return nil, fmt.Errorf("GET %s: %d", u.String(), r.StatusCode)
@@ -98,8 +129,8 @@ func (f Fetcher) Get(u *url.URL) (*http.Response, error) {
 	return r, err
 }
 
-func (f Fetcher) GetHTML(u *url.URL) (*goquery.Document, error) {
-	page, err := f.Get(u)
+func (f Fetcher) GetHTML(ctx context.Context, u *url.URL) (*goquery.Document, error) {
+	page, err := f.Get(ctx, u)
 	if err != nil {
 		return nil, err
 	}
@@ -279,12 +310,12 @@ func (s CBZSaver) Block(m Metadata) bool {
 	return isFile(archivename)
 }
 
-func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) Handler {
+func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule) Handler {
 	switch {
 	case strings.Contains(u.Hostname(), "mangareader.net"):
-		return NewMangaReaderCrawler(fetcher, saver, rule, obs)
-	case strings.Contains(u.Hostname(), "mangaeden.com"):
-		return NewMangaEdenCrawler(fetcher, saver, rule, obs)
+		return NewMangaReaderCrawler(fetcher, saver, rule)
+		// case strings.Contains(u.Hostname(), "mangaeden.com"):
+		// 	return NewMangaEdenCrawler(fetcher, saver, rule)
 	}
 	return nil
 }
@@ -292,6 +323,25 @@ func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) 
 func main() {
 	progressBar := NewProgressBar()
 	defer progressBar.Stop()
+
+	ctx := context.Background()
+
+	// trap Ctrl+C and call cancel on the context
+	ctx, cancel := context.WithCancel(ctx)
+
+	sigs := make(chan os.Signal)
+	signal.Notify(sigs, os.Interrupt)
+	defer func() {
+		signal.Stop(sigs)
+		cancel()
+	}()
+	go func() {
+		select {
+		case <-sigs:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 
 	fetcher := NewFetcher(50, 10)
 	saver := CBZSaver{progressBar: progressBar}
@@ -307,11 +357,12 @@ func main() {
 			log.Fatal(err)
 		}
 
-		h := handler(u, fetcher, saver, rule, saver)
+		h := handler(u, fetcher, saver, rule)
 		wg.Add(1)
+		h.Subscribe(saver)
 		go func() {
 			defer wg.Done()
-			h.Handle(u)
+			h.Handle(ctx, u)
 		}()
 	}
 

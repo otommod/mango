@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"log"
 	"net/url"
 	"path"
@@ -140,12 +140,24 @@ type MangaReaderCrawler struct {
 	client      Fetcher
 	saver       Saver
 	rule        Rule
-	obs         Observer
+	observers   []Observer
 }
 
 var (
 	IMAGE_NAME_RE = regexp.MustCompile(`(?P<prefix>.*)-(?P<number>\d+).(?P<suffix>.*)`)
 )
+
+func (m *MangaReaderCrawler) onPageEnd(page resource) {
+	for _, o := range m.observers {
+		o.OnPageEnd(page.info)
+	}
+}
+
+func (m *MangaReaderCrawler) onChapterEnd(chapter resource) {
+	for _, o := range m.observers {
+		o.OnChapterEnd(chapter.info)
+	}
+}
 
 func (m *MangaReaderCrawler) parseImageNumber(u *url.URL) (number int, pathFmt string) {
 	basename := path.Base(u.EscapedPath())
@@ -179,7 +191,7 @@ func (m *MangaReaderCrawler) parseImageNumber(u *url.URL) (number int, pathFmt s
 // where the numbers always increase monotonically.  They are not however
 // consecutive, though their difference remains the same within a single
 // chapter.  To guess them then, requires that another image be downloaded.
-func (m *MangaReaderCrawler) guessImages(pages []resource, images []resource) (pagesRem []resource, guesses []*url.URL) {
+func (m *MangaReaderCrawler) guessImages(ctx context.Context, pages []resource, images []resource) (pagesRem []resource, guesses []*url.URL) {
 	if len(images) == 0 {
 		log.Fatal("cannot guess images: no images given")
 	}
@@ -189,7 +201,10 @@ func (m *MangaReaderCrawler) guessImages(pages []resource, images []resource) (p
 	}
 
 	thisImageRes := images[0]
-	lastImageRes := m.handlePage(pages[len(pages)-1])
+	lastImageRes, err := m.handlePage(ctx, pages[len(pages)-1])
+	if err != nil {
+		log.Fatal(err)
+	}
 	pages = pages[:len(pages)-1]
 
 	thisPage := thisImageRes.info["page"].(int)
@@ -221,10 +236,13 @@ func (m *MangaReaderCrawler) guessImages(pages []resource, images []resource) (p
 	return
 }
 
-func (m *MangaReaderCrawler) handleManga(mangaURL *url.URL) {
-	mangaDoc, err := m.client.GetHTML(mangaURL)
+func (m *MangaReaderCrawler) handleManga(ctx context.Context, mangaURL *url.URL) {
+	mangaDoc, err := m.client.GetHTML(ctx, mangaURL)
 	if err != nil {
-		log.Fatal(err)
+		if err.(*url.Error).Err == context.Canceled {
+			return
+		}
+		log.Fatal("handleManga", err)
 	}
 
 	wg := sync.WaitGroup{}
@@ -233,15 +251,18 @@ func (m *MangaReaderCrawler) handleManga(mangaURL *url.URL) {
 		wg.Add(1)
 		go func(c resource) {
 			defer wg.Done()
-			m.handleChapter(c)
+			m.handleChapter(ctx, c)
 		}(c)
 	}
 	wg.Wait()
 }
 
-func (m *MangaReaderCrawler) handleChapter(chapter resource) {
-	chapterDoc, err := m.client.GetHTML(chapter.url)
+func (m *MangaReaderCrawler) handleChapter(ctx context.Context, chapter resource) {
+	chapterDoc, err := m.client.GetHTML(ctx, chapter.url)
 	if err != nil {
+		if err.(*url.Error).Err == context.Canceled {
+			return
+		}
 		log.Fatal(err)
 	}
 
@@ -259,8 +280,11 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 			mangaURL, _ = chapter.url.Parse(path.Dir(chapterPath))
 		}
 
-		mangaDoc, err := m.client.GetHTML(mangaURL)
+		mangaDoc, err := m.client.GetHTML(ctx, mangaURL)
 		if err != nil {
+			if err.(*url.Error).Err == context.Canceled {
+				return
+			}
 			log.Fatal(err)
 		}
 		allChapters := m.scraper.GetChapters(mangaDoc)
@@ -288,7 +312,7 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		m.handleImage(thisPage[0])
+		m.handleImage(ctx, thisPage[0])
 	}()
 
 	if !m.shouldGuess {
@@ -296,26 +320,27 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 			wg.Add(1)
 			go func(p resource) {
 				defer wg.Done()
-				m.handlePage(p)
+				// TODO: handle errors
+				m.handlePage(ctx, p)
 			}(p)
 		}
 
 	} else {
-		pages, guesses := m.guessImages(otherPages, thisPage)
+		pages, guesses := m.guessImages(ctx, otherPages, thisPage)
 		for i, p := range pages {
 			wg.Add(1)
 			go func(page resource, imgURL *url.URL) {
 				defer wg.Done()
 				img := resource{imgURL, Metadata{"image_ext": "jpg"}} // XXX: are all images jpgs
 				img.info.Update(page.info)
-				err := m.handleImage(img)
+				err := m.handleImage(ctx, img)
 
 				if err == nil {
-					m.obs.OnPageEnd(img.info)
+					m.onPageEnd(img)
 				} else {
 					// XXX: don't inspect error messages
 					if strings.HasPrefix(err.Error(), "GET") && strings.HasSuffix(err.Error(), "404") {
-						m.handlePage(page)
+						m.handlePage(ctx, page)
 					} else {
 						log.Fatal(err)
 					}
@@ -325,27 +350,28 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 	}
 
 	wg.Wait()
-	m.obs.OnPageEnd(thisPage[0].info)
-	m.obs.OnChapterEnd(thisPage[0].info)
+	m.onPageEnd(thisPage[0])
+	m.onChapterEnd(thisPage[0])
 }
 
-func (m *MangaReaderCrawler) handlePage(page resource) resource {
-	pageDoc, err := m.client.GetHTML(page.url)
+func (m *MangaReaderCrawler) handlePage(ctx context.Context, page resource) (resource, error) {
+	pageDoc, err := m.client.GetHTML(ctx, page.url)
 	if err != nil {
-		log.Fatal(err)
+		return resource{}, err
 	}
 	img := m.scraper.GetImage(pageDoc)
 	img.info.Update(page.info)
-	defer m.obs.OnPageEnd(img.info)
 
-	if err := m.handleImage(img); err != nil {
-		log.Fatal(err)
+	if err := m.handleImage(ctx, img); err != nil {
+		return resource{}, err
 	}
-	return img
+
+	m.onPageEnd(img)
+	return img, nil
 }
 
-func (m *MangaReaderCrawler) handleImage(img resource) error {
-	r, err := m.client.Get(img.url)
+func (m *MangaReaderCrawler) handleImage(ctx context.Context, img resource) error {
+	r, err := m.client.Get(ctx, img.url)
 	if err != nil {
 		return err
 	}
@@ -357,31 +383,46 @@ func (m *MangaReaderCrawler) handleImage(img resource) error {
 	}
 	defer out.Close()
 
-	if _, err := io.Copy(out, r.Body); err != nil {
+	if _, err := Copy(ctx, out, r.Body); err != nil {
 		return err
 	}
 	return nil
 }
 
-func NewMangaReaderCrawler(fetcher Fetcher, saver Saver, rule Rule, obs Observer) *MangaReaderCrawler {
+type chapterObserverFunc func(Metadata)
+
+func (fn chapterObserverFunc) OnPageEnd(info Metadata) {}
+func (fn chapterObserverFunc) OnChapterEnd(info Metadata) {
+	fn(info)
+}
+
+func NewMangaReaderCrawler(fetcher Fetcher, saver Saver, rule Rule) *MangaReaderCrawler {
 	crawler := &MangaReaderCrawler{
 		shouldGuess: false,
 		client:      fetcher,
 		saver:       saver,
 		rule:        rule,
-		obs:         obs,
 	}
+
+	// for debugging
+	crawler.Subscribe(chapterObserverFunc(func(info Metadata) {
+		log.Println("finished chapter", info["chapterIndex"])
+	}))
 
 	return crawler
 }
 
-func (m *MangaReaderCrawler) Handle(u *url.URL) {
+func (m *MangaReaderCrawler) Handle(ctx context.Context, u *url.URL) {
 	pathParts := strings.Split(u.EscapedPath(), "/")
 	if len(pathParts) == 2 {
-		m.handleManga(u)
+		m.handleManga(ctx, u)
 	} else if len(pathParts) == 4 || len(pathParts) == 3 && pathParts[len(pathParts)-1] != "" {
-		m.handleChapter(resource{u, nil})
+		m.handleChapter(ctx, resource{u, nil})
 	} else {
 		log.Fatalln("mangareader: cannot handle", u)
 	}
+}
+
+func (m *MangaReaderCrawler) Subscribe(o Observer) {
+	m.observers = append(m.observers, o)
 }

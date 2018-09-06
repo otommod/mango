@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io"
 	"log"
 	"os"
@@ -47,6 +48,31 @@ func isDir(path string) bool {
 		log.Fatal(err)
 	}
 	return finfo.IsDir()
+}
+
+// here is some syntaxic sugar inspired by the Tomas Senart's video,
+// it allows me to inline the Reader interface
+type readerFunc func(p []byte) (n int, err error)
+
+func (rf readerFunc) Read(p []byte) (n int, err error) { return rf(p) }
+
+// slightly modified function signature:
+// - context has been added in order to propagate cancelation
+// - I do not return the number of bytes written, has it is not useful in my use case
+func Copy(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+
+	// Copy will call the Reader and Writer interface multiple time, in order
+	// to copy by chunk (avoiding loading the whole file in memory).
+	// I insert the ability to cancel before read time as it is the earliest
+	// possible in the call process.
+	return io.Copy(dst, readerFunc(func(p []byte) (int, error) {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		default:
+			return src.Read(p)
+		}
+	}))
 }
 
 type ProgressReader struct {
