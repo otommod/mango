@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -144,12 +145,15 @@ func isFile(path string) bool {
 type PageSaver struct{}
 
 func (s PageSaver) name(info Metadata) (dirname, basename string) {
+	chaptersLen := len(strconv.Itoa(info["chapters"].(int)))
+	pagesLen := len(strconv.Itoa(info["pages"].(int)))
+
 	dirname = fmt.Sprintf("%s/%0*d",
 		info["manga"],
-		info["chapters_len"],
+		chaptersLen,
 		info["chapter"])
 	basename = fmt.Sprintf("%0*d.%s",
-		info["pages_len"],
+		pagesLen,
 		info["page"],
 		info["image_ext"])
 	return
@@ -217,12 +221,15 @@ func (s PageSaver) Block(info Metadata) bool {
 type CBZSaver struct{}
 
 func (s CBZSaver) name(info Metadata) (archivename, imagename string) {
+	chaptersLen := len(strconv.Itoa(info["chapters"].(int)))
+	pagesLen := len(strconv.Itoa(info["pages"].(int)))
+
 	archivename = fmt.Sprintf("%s/%0*d.cbz",
 		info["manga"],
-		info["chapters_len"],
+		chaptersLen,
 		info["chapter"])
 	imagename = fmt.Sprintf("%0*d.%s",
-		info["pages_len"],
+		pagesLen,
 		info["page"],
 		info["image_ext"])
 	return

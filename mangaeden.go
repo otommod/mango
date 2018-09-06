@@ -43,14 +43,14 @@ func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resou
 	status = strings.TrimSpace(status)
 
 	mangainfo := Metadata{
-		"manga":             doc.Find(".manga-title").Text(),
-		"author":            doc.Find("#rightContent h4:contains('Author') + a").Text(),
-		"artist":            doc.Find("#rightContent h4:contains('Artist') + a").Text(),
-		"status":            status,
-		"reading_direction": readingDirection,
-		"genres":            doc.Find("#rightContent h4:contains('Genres') ~ a").Map(mapSelectionText),
-		"description":       doc.Find("#mangaDescription").Text(),
-		"cover_image":       doc.Find(".mangaImage2 img").AttrOr("src", ""),
+		"manga":            doc.Find(".manga-title").Text(),
+		"author":           doc.Find("#rightContent h4:contains('Author') + a").Text(),
+		"artist":           doc.Find("#rightContent h4:contains('Artist') + a").Text(),
+		"status":           status,
+		"readingDirection": readingDirection,
+		"genres":           doc.Find("#rightContent h4:contains('Genres') ~ a").Map(mapSelectionText),
+		"description":      doc.Find("#mangaDescription").Text(),
+		"coverImage":       doc.Find(".mangaImage2 img").AttrOr("src", ""),
 	}
 
 	mangaName := mangainfo["manga"].(string)
@@ -59,7 +59,7 @@ func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resou
 	}
 
 	chapterLinks := doc.Find(".chapterLink")
-	chaptersLen := len(strconv.Itoa(chapterLinks.Length()))
+	mangainfo["chapters"] = chapterLinks.Length()
 
 	chapterLinks.Each(func(i int, s *goquery.Selection) {
 		if goquery.NodeName(s) != "a" {
@@ -80,9 +80,9 @@ func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resou
 		name := match[2]
 
 		chapterinfo := Metadata{
+			"chapterIndex": i + 1,
 			"chapter":      num,
-			"chapter_name": name,
-			"chapters_len": chaptersLen,
+			"chapterName":  name,
 			"date":         s.Parent().Parent().Find("td.chapterDate").Text(),
 		}
 		chapterinfo.Update(mangainfo)
@@ -102,8 +102,6 @@ func (m *MangaEdenScrapper) GetChapters(doc *goquery.Document) (chapters []resou
 
 func (m *MangaEdenScrapper) GetPages(doc *goquery.Document) (pages []resource, images []resource) {
 	options := doc.Find("#pageSelect option")
-	pagesLen := len(strconv.Itoa(options.Length()))
-
 	options.Each(func(i int, s *goquery.Selection) {
 		value, ok := s.Attr("value")
 		if !ok {
@@ -111,8 +109,8 @@ func (m *MangaEdenScrapper) GetPages(doc *goquery.Document) (pages []resource, i
 		}
 
 		info := Metadata{
-			"page":      i + 1,
-			"pages_len": pagesLen,
+			"pages": options.Length(),
+			"page":  i + 1,
 		}
 
 		u, err := doc.Url.Parse(value)

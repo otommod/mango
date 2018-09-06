@@ -27,14 +27,14 @@ func mapSelectionText(i int, s *goquery.Selection) string {
 
 func (m MangaReaderScraper) GetChapters(doc *goquery.Document) (chapters []resource) {
 	mangainfo := Metadata{
-		"manga":             doc.Find(".aname").Text(),
-		"author":            doc.Find("td:contains('Author:') ~ td").Text(),
-		"artist":            doc.Find("td:contains('Artist:') ~ td").Text(),
-		"status":            doc.Find("td:contains('Status:') ~ td").Text(),
-		"reading_direction": doc.Find("td:contains('Reading Direction:') ~ td").Text(),
-		"genres":            doc.Find(".genretags").Map(mapSelectionText),
-		"description":       doc.Find("#readmangasum p").Text(),
-		"cover_image":       doc.Find("#mangaimg img").AttrOr("src", ""),
+		"manga":            doc.Find(".aname").Text(),
+		"author":           doc.Find("td:contains('Author:') ~ td").Text(),
+		"artist":           doc.Find("td:contains('Artist:') ~ td").Text(),
+		"status":           doc.Find("td:contains('Status:') ~ td").Text(),
+		"readingDirection": doc.Find("td:contains('Reading Direction:') ~ td").Text(),
+		"genres":           doc.Find(".genretags").Map(mapSelectionText),
+		"description":      doc.Find("#readmangasum p").Text(),
+		"coverImage":       doc.Find("#mangaimg img").AttrOr("src", ""),
 	}
 
 	mangaName := mangainfo["manga"].(string)
@@ -42,17 +42,17 @@ func (m MangaReaderScraper) GetChapters(doc *goquery.Document) (chapters []resou
 		log.Fatal("cannot extract chapters: no manga name")
 	}
 
-	readingDirection := mangainfo["reading_direction"].(string)
+	readingDirection := mangainfo["readingDirection"].(string)
 	if strings.ToLower(readingDirection) == "right to left" {
-		mangainfo["reading_direction"] = "rtl"
+		mangainfo["readingDirection"] = "rtl"
 	} else {
-		mangainfo["reading_direction"] = "ltr"
+		mangainfo["readingDirection"] = "ltr"
 	}
 
 	listings := doc.Find("#listing td:first-child")
-	chaptersLen := len(strconv.Itoa(listings.Length()))
+	mangainfo["chapters"] = listings.Length()
 
-	doc.Find("#listing td:first-child").Each(func(i int, s *goquery.Selection) {
+	listings.Each(func(i int, s *goquery.Selection) {
 		links := s.Find("a[href]")
 		if links.Length() != 1 {
 			log.Fatal("cannot extract chapters: no link")
@@ -72,9 +72,9 @@ func (m MangaReaderScraper) GetChapters(doc *goquery.Document) (chapters []resou
 		name := match[2]
 
 		chapterinfo := Metadata{
+			"chapterIndex": i + 1,
 			"chapter":      num,
-			"chapter_name": name,
-			"chapters_len": chaptersLen,
+			"chapterName":  name,
 			"date":         s.Next().Text(),
 		}
 		chapterinfo.Update(mangainfo)
@@ -94,8 +94,6 @@ func (m MangaReaderScraper) GetChapters(doc *goquery.Document) (chapters []resou
 
 func (m MangaReaderScraper) GetPages(doc *goquery.Document) (pages []resource, images []resource) {
 	options := doc.Find("#pageMenu option")
-	pagesLen := len(strconv.Itoa(options.Length()))
-
 	options.Each(func(i int, s *goquery.Selection) {
 		value, ok := s.Attr("value")
 		if !ok {
@@ -103,8 +101,8 @@ func (m MangaReaderScraper) GetPages(doc *goquery.Document) (pages []resource, i
 		}
 
 		info := Metadata{
-			"page":      i + 1,
-			"pages_len": pagesLen,
+			"pages": options.Length(),
+			"page":  i + 1,
 		}
 
 		u, err := doc.Url.Parse(value)
