@@ -283,8 +283,6 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 		return
 	}
 
-	m.obs.OnChapterStart(thisPage[0].info)
-	m.obs.OnPageStart(thisPage[0].info)
 	wg := sync.WaitGroup{}
 
 	wg.Add(1)
@@ -308,8 +306,6 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 			wg.Add(1)
 			go func(page resource, imgURL *url.URL) {
 				defer wg.Done()
-				m.obs.OnPageStart(page.info)
-
 				img := resource{imgURL, Metadata{"image_ext": "jpg"}} // XXX: are all images jpgs
 				img.info.Update(page.info)
 				err := m.handleImage(img)
@@ -334,8 +330,6 @@ func (m *MangaReaderCrawler) handleChapter(chapter resource) {
 }
 
 func (m *MangaReaderCrawler) handlePage(page resource) resource {
-	m.obs.OnPageStart(page.info)
-
 	pageDoc, err := m.client.GetHTML(page.url)
 	if err != nil {
 		log.Fatal(err)

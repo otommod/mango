@@ -50,9 +50,7 @@ type Rule interface {
 }
 
 type Observer interface {
-	OnChapterStart(Metadata)
 	OnChapterEnd(Metadata)
-	OnPageStart(Metadata)
 	OnPageEnd(Metadata)
 }
 
@@ -175,9 +173,6 @@ func (s PageSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
 	}, nil
 }
 
-func (s PageSaver) OnPageStart(_ Metadata)    {}
-func (s PageSaver) OnChapterStart(_ Metadata) {}
-
 func (s PageSaver) OnPageEnd(info Metadata) {
 	dirname, basename := s.name(info)
 	tmpdirname, tmpbasename := dirname+".part", basename+".part"
@@ -251,9 +246,6 @@ func (s CBZSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
 	}, nil
 }
 
-func (s CBZSaver) OnPageStart(_ Metadata)    {}
-func (s CBZSaver) OnChapterStart(_ Metadata) {}
-
 func (s CBZSaver) OnPageEnd(info Metadata) {
 	archivename, imagename := s.name(info)
 	tmparchivename, tmpimagename := archivename+".part", imagename+".part"
@@ -320,34 +312,6 @@ func (s CBZSaver) Block(m Metadata) bool {
 	log.Println("allowing", archivename)
 	return false
 }
-
-// type CombinedObserver struct {
-// 	observers []Observer
-// }
-
-// func (co *CombinedObserver) OnChapterStart(id int) {
-// 	for _, o := range co.observers {
-// 		o.OnChapterStart(id)
-// 	}
-// }
-
-// func (co *CombinedObserver) OnChapterEnd(id int) {
-// 	for _, o := range co.observers {
-// 		o.OnChapterEnd(id)
-// 	}
-// }
-
-// func (co *CombinedObserver) OnPageStart(id int) {
-// 	for _, o := range co.observers {
-// 		o.OnPageStart(id)
-// 	}
-// }
-
-// func (co *CombinedObserver) OnPageEnd(id int) {
-// 	for _, o := range co.observers {
-// 		o.OnPageEnd(id)
-// 	}
-// }
 
 func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) Handler {
 	switch {

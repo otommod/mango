@@ -219,8 +219,6 @@ func (m *MangaEdenCrawler) handleChapter(chapter resource) {
 		return
 	}
 
-	m.obs.OnChapterStart(thisPage[0].info)
-	m.obs.OnPageStart(thisPage[0].info)
 	wg := sync.WaitGroup{}
 
 	wg.Add(1)
@@ -243,8 +241,6 @@ func (m *MangaEdenCrawler) handleChapter(chapter resource) {
 }
 
 func (m *MangaEdenCrawler) handlePage(page resource) resource {
-	m.obs.OnPageStart(page.info)
-
 	pageDoc, err := m.client.GetHTML(page.url)
 	if err != nil {
 		log.Fatal(err)
