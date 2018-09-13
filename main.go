@@ -37,6 +37,11 @@ func (m Metadata) Update(other Metadata) {
 	}
 }
 
+type Resource struct {
+	url  *url.URL
+	info Metadata
+}
+
 type Handler interface {
 	Handle(*url.URL)
 }
@@ -46,7 +51,7 @@ type Saver interface {
 }
 
 type Rule interface {
-	Block(Metadata) bool
+	Block(Resource) bool
 }
 
 type Observer interface {
@@ -113,17 +118,14 @@ type PageSaver struct {
 }
 
 func (s PageSaver) name(info Metadata) (dirname, basename string) {
-	chaptersLen := len(strconv.Itoa(info["chapters"].(int)))
-	pagesLen := len(strconv.Itoa(info["pages"].(int)))
-
-	dirname = fmt.Sprintf("%s/%0*d",
-		info["manga"],
-		chaptersLen,
-		info["chapter"])
-	basename = fmt.Sprintf("%0*d.%s",
-		pagesLen,
-		info["page"],
-		info["image_ext"])
+	if chapters, ok := info["chapters"].(int); ok {
+		dirname = fmt.Sprintf("%s/%0*d", info["manga"],
+			len(strconv.Itoa(chapters)), info["chapter"])
+	}
+	if pages, ok := info["pages"].(int); ok {
+		basename = fmt.Sprintf("%0*d.%s",
+			len(strconv.Itoa(pages)), info["page"], info["imageExtension"])
+	}
 	return
 }
 
@@ -139,12 +141,12 @@ func (s PageSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
 		return nil, err
 	}
 
-	task := s.progressBar.StartTask(size)
+	task := s.progressBar.NewTask()
 	return &ProgressWriter{
 		Writer: file,
 		Size:   size,
-		Callback: func(prog, total int64) {
-			s.progressBar.TickTask(task, prog)
+		Callback: func(sofar, total int64) {
+			s.progressBar.TickTask(task, sofar, total)
 		},
 	}, nil
 }
@@ -172,8 +174,8 @@ func (s PageSaver) OnChapterEnd(info Metadata) {
 	}
 }
 
-func (s PageSaver) Block(info Metadata) bool {
-	dirname, _ := s.name(info)
+func (s PageSaver) Block(r Resource) bool {
+	dirname, _ := s.name(r.info)
 	return isDir(dirname)
 }
 
@@ -182,17 +184,14 @@ type CBZSaver struct {
 }
 
 func (s CBZSaver) name(info Metadata) (archivename, imagename string) {
-	chaptersLen := len(strconv.Itoa(info["chapters"].(int)))
-	pagesLen := len(strconv.Itoa(info["pages"].(int)))
-
-	archivename = fmt.Sprintf("%s/%0*d.cbz",
-		info["manga"],
-		chaptersLen,
-		info["chapter"])
-	imagename = fmt.Sprintf("%0*d.%s",
-		pagesLen,
-		info["page"],
-		info["image_ext"])
+	if chapters, ok := info["chapters"].(int); ok {
+		archivename = fmt.Sprintf("%s/%0*d.cbz",
+			info["manga"], len(strconv.Itoa(chapters)), info["chapter"])
+	}
+	if pages, ok := info["pages"].(int); ok {
+		imagename = fmt.Sprintf("%0*d.%s",
+			len(strconv.Itoa(pages)), info["page"], info["imageExtension"])
+	}
 	return
 }
 
@@ -208,12 +207,12 @@ func (s CBZSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
 		return nil, err
 	}
 
-	task := s.progressBar.StartTask(size)
+	task := s.progressBar.NewTask()
 	return &ProgressWriter{
 		Writer: file,
 		Size:   size,
-		Callback: func(prog, total int64) {
-			s.progressBar.TickTask(task, prog)
+		Callback: func(sofar, total int64) {
+			s.progressBar.TickTask(task, sofar, total)
 		},
 	}, nil
 }
@@ -274,8 +273,8 @@ func (s CBZSaver) OnChapterEnd(info Metadata) {
 	})
 }
 
-func (s CBZSaver) Block(m Metadata) bool {
-	archivename, _ := s.name(m)
+func (s CBZSaver) Block(r Resource) bool {
+	archivename, _ := s.name(r.info)
 	return isFile(archivename)
 }
 
@@ -295,8 +294,8 @@ func main() {
 
 	fetcher := NewFetcher(50, 10)
 	saver := CBZSaver{progressBar: progressBar}
-	// rule := saver
-	rule := AndRule{saver, LastChapterRule{}}
+	rule := saver
+	// rule := AndRule{saver, LastChapterRule{}}
 
 	wg := sync.WaitGroup{}
 

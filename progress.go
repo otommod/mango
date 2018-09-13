@@ -5,8 +5,10 @@ import (
 	"image/color"
 )
 
+type Task int64
+
 type progress struct {
-	place int
+	task  Task
 	sofar int64
 	total int64
 }
@@ -17,7 +19,7 @@ func (p *progress) Tick(currentProgress int64) {
 
 type ProgressBar struct {
 	gradient LinearGradient
-	startCh  chan int
+	startCh  chan Task
 	tickCh   chan progress
 	stopCh   chan empty
 	stopped  chan empty
@@ -32,7 +34,7 @@ func NewProgressBar() *ProgressBar {
 
 	p := &ProgressBar{
 		gradient: gradient,
-		startCh:  make(chan int),
+		startCh:  make(chan Task),
 		tickCh:   make(chan progress),
 		stopCh:   make(chan empty),
 		stopped:  make(chan empty),
@@ -41,54 +43,54 @@ func NewProgressBar() *ProgressBar {
 	return p
 }
 
-func (self ProgressBar) StartTask(total int64) progress {
-	newTask := progress{
-		<-self.startCh,
-		0,
-		total,
-	}
-	self.TickTask(newTask, 0)
+func (p ProgressBar) NewTask() Task {
+	newTask := <-p.startCh
+	p.TickTask(newTask, 0, 0)
 	return newTask
 }
 
-func (self ProgressBar) TickTask(info progress, sofar int64) {
-	info.sofar = sofar
-	self.tickCh <- info
+func (p ProgressBar) TickTask(task Task, sofar, total int64) {
+	p.tickCh <- progress{task, sofar, total}
 }
 
-func (self ProgressBar) run() {
+func (p ProgressBar) run() {
 	fmt.Print("\033[?25l")       // cursor off
 	defer fmt.Print("\033[?25h") // cursor on
 
 	// This is because the escape code that places the cursor, at least on my
 	// terminal, treats the zeroth and the first place as the same, so you'd
 	// have some overlapping tasks.
-	var nextPlace int = 1
+	var nextPlace Task = 1
+
+	chars := []string{"▁", "▃", "▄", "▅", "▆", "▇", "█"}
 
 loop:
 	for {
 		select {
-		case <-self.stopCh:
+		case <-p.stopCh:
 			break loop
 
-		case self.startCh <- nextPlace:
+		case p.startCh <- nextPlace:
 			nextPlace++
 
-		case task := <-self.tickCh:
+		case progress := <-p.tickCh:
 			var color int
-			if task.total <= 0 {
+			var char string
+			if progress.total <= 0 {
 				color = 7 // white/grey
+				char = chars[len(chars)-1]
 			} else {
-				percent := float64(task.sofar) / float64(task.total)
-				color = XTerm256Palette.Index(self.gradient.At(percent))
+				percent := float64(progress.sofar) / float64(progress.total)
+				color = XTerm256Palette.Index(p.gradient.At(percent))
+				char = chars[int(percent*float64(len(chars)-1))]
 			}
-			fmt.Printf("\033[%dG\033[48;5;%dm \033[0m", task.place, color)
+			fmt.Printf("\033[%dG\033[38;5;%dm%s\033[0m", progress.task, color, char)
 		}
 	}
-	close(self.stopped)
+	close(p.stopped)
 }
 
-func (self ProgressBar) Stop() {
-	self.stopCh <- empty{}
-	<-self.stopped
+func (p ProgressBar) Stop() {
+	close(p.stopCh)
+	<-p.stopped
 }
