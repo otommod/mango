@@ -62,13 +62,12 @@ func (m MangaReaderScraper) GetChapters(doc *goquery.Document) (chapters []Resou
 			log.Fatal("cannot extract chapters: no number")
 		}
 		num, _ := strconv.Atoi(match[1])
-		name := match[2]
 
 		chapterinfo := Metadata{
 			"chapterIndex": i + 1,
 			"chapter":      num,
-			"chapterName":  name,
-			"date":         s.Next().Text(),
+			"chapterName":  match[2],
+			// "dateAdded":    s.Next().Text(),
 		}
 		chapterinfo.Update(mangainfo)
 
@@ -94,8 +93,8 @@ func (m MangaReaderScraper) GetPages(doc *goquery.Document) (pages []Resource, i
 		}
 
 		info := Metadata{
-			"pages": options.Length(),
-			"page":  i + 1,
+			"pages":     options.Length(),
+			"pageIndex": i + 1,
 		}
 
 		u, err := doc.Url.Parse(value)
@@ -110,7 +109,6 @@ func (m MangaReaderScraper) GetPages(doc *goquery.Document) (pages []Resource, i
 			pages = append(pages, Resource{u, info})
 		}
 	})
-
 	return
 }
 

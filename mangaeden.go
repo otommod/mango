@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"path"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -52,20 +51,18 @@ func (m MangaEdenScraper) GetChapters(doc *goquery.Document) (chapters []Resourc
 			log.Fatal("cannot extract chapters: no link")
 		}
 
-		re := regexp.MustCompile(`(?P<num>\d+)(?:: (?P<name>.*))?`)
+		re := regexp.MustCompile(`(?P<num>[^:]+)(?:: (?P<name>.*))?`)
 		// match := re.FindStringSubmatch(strings.TrimLeftFunc(s.Text(), unicode.IsSpace))
 		match := re.FindStringSubmatch(s.Find("b").Text())
 		if len(match) < 1 {
 			log.Fatal("cannot extract chapters: no number")
 		}
-		num, _ := strconv.Atoi(match[1])
-		name := match[2]
 
 		chapterinfo := Metadata{
 			"chapterIndex": i + 1,
-			"chapter":      num,
-			"chapterName":  name,
-			"date":         s.Parent().Parent().Find("td.chapterDate").Text(),
+			"chapter":      match[1],
+			"chapterName":  match[2],
+			// "dateAdded":    s.Parent().Parent().Find("td.chapterDate").Text(),
 		}
 		chapterinfo.Update(mangainfo)
 
@@ -91,8 +88,8 @@ func (m MangaEdenScraper) GetPages(doc *goquery.Document) (pages []Resource, ima
 		}
 
 		info := Metadata{
-			"pages": options.Length(),
-			"page":  i + 1,
+			"pages":     options.Length(),
+			"pageIndex": i + 1,
 		}
 
 		u, err := doc.Url.Parse(value)
@@ -159,7 +156,7 @@ func (m *MangaEdenCrawler) Handle(u *url.URL) {
 		// add a rule to only download the requested chapter
 		whitelistRule := funcRule(func(r Resource) bool {
 			cleanPath := strings.TrimRight(r.url.EscapedPath(), "/")
-			return !strings.HasPrefix(cleanPath, chapterPath)
+			return cleanPath != chapterPath && !strings.HasPrefix(cleanPath, chapterPath+"/")
 		})
 		m.rule = AndRule{whitelistRule, m.rule}
 		fallthrough

@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -124,7 +125,7 @@ func (s PageSaver) name(info Metadata) (dirname, basename string) {
 	}
 	if pages, ok := info["pages"].(int); ok {
 		basename = fmt.Sprintf("%0*d.%s",
-			len(strconv.Itoa(pages)), info["page"], info["imageExtension"])
+			len(strconv.Itoa(pages)), info["pageIndex"], info["imageExtension"])
 	}
 	return
 }
@@ -190,9 +191,31 @@ func (s CBZSaver) name(info Metadata) (archivename, imagename string) {
 	}
 	if pages, ok := info["pages"].(int); ok {
 		imagename = fmt.Sprintf("%0*d.%s",
-			len(strconv.Itoa(pages)), info["page"], info["imageExtension"])
+			len(strconv.Itoa(pages)), info["pageIndex"], info["imageExtension"])
 	}
 	return
+}
+
+func (s CBZSaver) addMetadataFiles(info Metadata, tmparchivename string) {
+	comicInfoXML, err := os.Create(filepath.Join(tmparchivename, "ComicInfo.xml"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer comicInfoXML.Close()
+	enc := xml.NewEncoder(comicInfoXML)
+	if err := enc.Encode(comicInfo(info)); err != nil {
+		log.Fatal(err)
+	}
+
+	coMetXML, err := os.Create(filepath.Join(tmparchivename, "CoMet.xml"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer coMetXML.Close()
+	enc = xml.NewEncoder(coMetXML)
+	if err := enc.Encode(coMet(info)); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (s CBZSaver) Save(info Metadata, size int64) (io.WriteCloser, error) {
@@ -232,6 +255,8 @@ func (s CBZSaver) OnPageEnd(info Metadata) {
 func (s CBZSaver) OnChapterEnd(info Metadata) {
 	archivename, _ := s.name(info)
 	tmparchivename := archivename + ".part"
+
+	s.addMetadataFiles(info, tmparchivename)
 
 	zipfile, err := os.Create(archivename)
 	if err != nil {
@@ -280,9 +305,9 @@ func (s CBZSaver) Block(r Resource) bool {
 
 func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) Handler {
 	switch {
-	case strings.Contains(u.Hostname(), "mangareader.net"):
+	case strings.HasSuffix(u.Hostname(), "mangareader.net"):
 		return NewMangaReaderCrawler(fetcher, saver, rule, obs)
-	case strings.Contains(u.Hostname(), "mangaeden.com"):
+	case strings.HasSuffix(u.Hostname(), "mangaeden.com"):
 		return NewMangaEdenCrawler(fetcher, saver, rule, obs)
 	}
 	return nil
