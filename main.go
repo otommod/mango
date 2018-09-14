@@ -309,6 +309,8 @@ func handler(u *url.URL, fetcher Fetcher, saver Saver, rule Rule, obs Observer) 
 		return NewMangaReaderCrawler(fetcher, saver, rule, obs)
 	case strings.HasSuffix(u.Hostname(), "mangaeden.com"):
 		return NewMangaEdenCrawler(fetcher, saver, rule, obs)
+	case strings.HasSuffix(u.Hostname(), "readms.net"):
+		return NewMangaStreamerCrawler(fetcher, saver, rule, obs)
 	}
 	return nil
 }
